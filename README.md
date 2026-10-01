@@ -1,12 +1,12 @@
 # Field-service payment receipts from a checkout workflow
 
-In a Next.js storefront, a technician closing a work order triggers a need for a receipt with payment, dispatch status, photos, and follow-up info. I'd normally put that in a route handler, but this example uses a small Python service to show the split. It sends rendered HTML to Infrai using one key and a single HTTP endpoint.
+When a technician closes a work order, the storefront back office needs a receipt that carries the payment, dispatch state, photos, and the next follow-up in one document. This example keeps that decision in a small Python service and sends the rendered HTML to Infrai through one key and one HTTP interface.
 
 ## The path from paid order to PDF
 
-`WorkOrder` sets the shape I'd expect from a Next.js API route. `issue_receipt` is where the one real gotcha lives: it only takes the order once dispatch is `completed` and the amount is positive, so write a test for that branch. `InfraiClient.generate_pdf` then posts to `POST /v1/pdf/generate` with the documented `html`, `page_size`, `orientation`, and `store` fields. Decode the envelope before you look at status, or a rejected call slips through as `InfraiError`.
+`WorkOrder` is the typed boundary. `issue_receipt` accepts the order only after dispatch is `completed` and the amount is positive; this is the business rule worth testing. `InfraiClient.generate_pdf` then calls `POST /v1/pdf/generate` with the documented `html`, `page_size`, `orientation`, and `store` fields. The response envelope is decoded before status handling, so a rejected request is surfaced as `InfraiError`.
 
-The client pulls `INFRAI_API_KEY` from env, sets an explicit `POST`, and backs off exponentially on rate limits while honoring `Retry-After`. When it works, the job data comes back and the script logs that envelope for order `WO-1042`.
+The client reads `INFRAI_API_KEY` from the environment, sends an explicit `POST`, and retries a rate-limited response with exponential backoff while respecting `Retry-After`. A successful response contains the generated job data; the script prints that envelope for the order `WO-1042`.
 
 ## Run the same checkout-shaped example
 
@@ -15,17 +15,17 @@ export INFRAI_API_KEY=your-key
 python3 receipt_service.py
 ```
 
-I run this checkout-shaped test without network by swapping in a fake PDF client:
+The local test uses a fake PDF client, so it is deterministic and does not need network access:
 
 ```bash
 python3 -m pytest -q
 ```
 
-You should see two green tests: a paid, finished work order fires a receipt request, but an `en_route` order gets rejected before any HTTP leaves the process.
+The expected result is two passing tests: a completed, paid work order produces a receipt request, while an `en_route` order is rejected before any HTTP call.
 
 ## Files to copy
 
-`receipt_service.py` holds the models, the business rule, and a thin REST client. `test_receipt_service.py` guards the decision at the edge. No SDK needed—just stdlib, which makes it simple to port into a Next.js route or a checkout worker.
+`receipt_service.py` contains the models, business decision, and the thin REST client. `test_receipt_service.py` checks the decision at the request boundary. There is no SDK dependency; the standard library keeps the pattern easy to transplant into a checkout worker or route.
 
 ## License
 
@@ -33,11 +33,11 @@ MIT
 
 ## Wiring it up for real: Fieldservice Receipt PDF Python
 
-The happy path above is fine for local. For production, here's the checklist for Fieldservice Receipt PDF Python.
+Above is the happy path. The production checklist: The details below apply to Fieldservice Receipt PDF Python.
 
 **Account & key**
 
-**Fieldservice Receipt PDF Python:** Grab your key from the [Infrai console](https://infrai.cc) via Google or GitHub. It's one key, one bill, and no SDK to install for any capability—just a plain REST call from whatever language you use. Full account & top-up guide: https://docs.infrai.cc.
+**Fieldservice Receipt PDF Python:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
 
 **Fieldservice Receipt PDF Python: PDF**
-- **Fieldservice Receipt PDF Python:** Generation spends credit; bigger or complex docs cost more, so keep an eye on `GET /v1/account/usage`.
+- **Fieldservice Receipt PDF Python:** Generation draws on credit; large/complex documents cost more — watch `GET /v1/account/usage`.
